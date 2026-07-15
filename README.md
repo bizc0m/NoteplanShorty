@@ -1,38 +1,42 @@
-# NotePlan Shortcut Maker v3
+# NotePlan Shortcut Maker
 
-App macOS SwiftUI minimale pour creer des raccourcis `.app` depuis des notes NotePlan `.md`.
-Le logo est affiche dans l'app generateur, mais les raccourcis generes restent sans image ni icone.
+Tiny macOS app that creates `.app` shortcuts for specific NotePlan notes.
+Drop one or more NotePlan `.md` files, choose an output folder, and get one shortcut app per note.
 
 ![NotePlan Shortcut Maker v3](assets/readme/noteplan-shortcut-maker-v3.png)
 
-## Regle v3
+## What it does
 
-V3 genere uniquement des raccourcis sans icone personnalisee, sans image et sans logo embarque.
-Le generateur lui-meme embarque seulement un petit logo 128 px.
+- macOS only
+- SwiftUI
+- No backend, no account, no cloud
+- Batch note drop
+- Default output folder: `~/Downloads`
+- Generated shortcuts have no custom icon to keep them small
+- The original `.md` notes are never modified, copied, or moved
 
-Exemple :
+Example:
 
-- note : `TODO Suisse.md`
-- raccourci : `DESTINATION/TODO Suisse.app`
-- URL : `noteplan://x-callback-url/openNote?filename=TODO%20Suisse.md`
+- note: `TODO Suisse.md`
+- shortcut: `DESTINATION/TODO Suisse.app`
+- URL: `noteplan://x-callback-url/openNote?filename=TODO%20Suisse.md`
 
-Si la note vient du dossier NotePlan `Notes/`, l'URL utilise le chemin relatif complet.
-Exemple :
+If the note comes from NotePlan's `Notes/` folder, the app uses the full relative path.
 
-- note : `Notes/!!! Rapide/_Todo/TODO Suisse.md`
-- raccourci : `DESTINATION/TODO Suisse.app`
-- URL : `noteplan://x-callback-url/openNote?filename=!!!%20Rapide/_Todo/TODO%20Suisse.md`
+Example:
 
-La note `.md` n'est jamais modifiee, copiee ou deplacee.
+- note: `Notes/Projects/TODO Suisse.md`
+- shortcut: `DESTINATION/TODO Suisse.app`
+- URL: `noteplan://x-callback-url/openNote?filename=Projects/TODO%20Suisse.md`
 
-## Lancer
+## Run
 
 ```bash
 ./build-app.sh
 open "dist/NotePlan Shortcut Maker.app"
 ```
 
-Pour installer :
+Install locally:
 
 ```bash
 rm -rf "/Applications/NotePlan Shortcut Maker.app"
@@ -40,30 +44,26 @@ cp -R "dist/NotePlan Shortcut Maker.app" "/Applications/NotePlan Shortcut Maker.
 open "/Applications/NotePlan Shortcut Maker.app"
 ```
 
-## Utilisation
+## Use
 
-1. Par defaut, la destination est `~/Downloads`.
-2. Optionnel : cliquer sur `Choisir destination` pour changer de dossier.
-3. Deposer une ou plusieurs notes `.md`.
-4. Confirmer le remplacement si des `Nom.app` existent deja.
-5. Cliquer sur `Reveler le raccourci`.
+1. Choose a destination folder, or keep `~/Downloads`.
+2. Drop one or more NotePlan `.md` files.
+3. Confirm replacement if a shortcut already exists.
+4. Reveal the generated shortcut in Finder.
 
-Fallback : `Choisir des notes .md` utilise le meme generateur que le drag & drop.
+The file picker uses the same generator as drag and drop.
 
-## Verification
+## Test
 
 ```bash
 ./test-generation.sh
 ```
 
-Le test verifie :
+The test checks:
 
-- generation simple
-- remplacement sans `Nom 2.app`
-- noms accentues NFC
-- generation batch
-- chemin relatif NotePlan via `filename=`
-- absence de `CFBundleIconFile`
-- absence de `CFBundleIconName`
-- absence de `applet.icns`
-- absence de `CustomIcon.icns`
+- single shortcut generation
+- replacement without creating `Name 2.app`
+- accented filenames
+- batch generation
+- NotePlan relative paths via `filename=`
+- no generated shortcut icon payload

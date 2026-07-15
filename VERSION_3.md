@@ -1,21 +1,21 @@
 # Version 3
 
-Branche de travail pour NotePlan Shortcut Maker v3.
+Working branch for NotePlan Shortcut Maker v3.
 
 ## Decision
 
-V3 retire totalement les options image/icone.
+V3 removes custom image and icon options.
 
-## Contrat
+## Contract
 
-`note.md` deposee -> `Destination/note.app` -> URL NotePlan encodee.
+`note.md` dropped -> `Destination/note.app` -> encoded NotePlan URL.
 
-Toujours :
+Always:
 
-- batch de plusieurs notes
-- aucun changement du fichier `.md`
-- aucun `Nom 2.app`
-- aucun `CFBundleIconFile`
-- aucun `CFBundleIconName`
-- aucun `applet.icns`
-- aucun `CustomIcon.icns`
+- supports multiple notes
+- never changes the `.md` file
+- never creates `Name 2.app`
+- no `CFBundleIconFile`
+- no `CFBundleIconName`
+- no `applet.icns`
+- no `CustomIcon.icns`

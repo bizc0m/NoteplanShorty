@@ -1,5 +1,5 @@
 // v3 2026-07-15
-// Version minimale: generation de raccourcis NotePlan sans icone ni image.
+// Minimal version: generates NotePlan shortcuts without custom icons or images.
 
 import AppKit
 import Darwin
@@ -24,7 +24,7 @@ struct NotePlanShortcutMakerApp: App {
 struct ContentView: View {
     @State private var destinationURL: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     @State private var generatedAppURL: URL?
-    @State private var status = "Destination par defaut: Downloads. Depose une ou plusieurs notes .md."
+    @State private var status = "Default destination: Downloads. Drop one or more .md notes."
     @State private var didCreateShortcuts = false
     @State private var isDropTargeted = false
 
@@ -48,7 +48,7 @@ struct ContentView: View {
                     Text("Destination")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(destinationURL?.path ?? "Aucun dossier choisi")
+                    Text(destinationURL?.path ?? "No folder selected")
                         .font(.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -56,7 +56,7 @@ struct ContentView: View {
 
                 Spacer()
 
-                Button("Choisir destination") {
+                Button("Choose destination") {
                     chooseDestination()
                 }
             }
@@ -64,11 +64,11 @@ struct ContentView: View {
             notesDropZone
 
             HStack {
-                Button("Choisir des notes .md") {
+                Button("Choose .md notes") {
                     chooseNotes()
                 }
 
-                Button("Reveler le raccourci") {
+                Button("Reveal shortcut") {
                     revealGeneratedApp()
                 }
                 .disabled(generatedAppURL == nil)
@@ -81,7 +81,7 @@ struct ContentView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.green)
-                        .accessibilityLabel("Raccourci cree")
+                        .accessibilityLabel("Shortcut created")
                 }
 
                 Text(status)
@@ -110,7 +110,7 @@ struct ContentView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 30))
-                        Text("Deposer une ou plusieurs notes .md")
+                        Text("Drop one or more .md notes")
                             .font(.callout)
                     }
                 }
@@ -135,7 +135,7 @@ struct ContentView: View {
         if panel.runModal() == .OK, let url = panel.url {
             destinationURL = url
             didCreateShortcuts = false
-            status = "Destination choisie: \(url.path)"
+            status = "Destination selected: \(url.path)"
         }
     }
 
@@ -154,20 +154,20 @@ struct ContentView: View {
     private func createShortcutsFromNotes(_ noteURLs: [URL]) {
         guard let destinationURL else {
             didCreateShortcuts = false
-            status = "Choisis d'abord un dossier destination."
+            status = "Choose a destination folder first."
             return
         }
 
         let markdownURLs = noteURLs.filter { $0.pathExtension.lowercased() == "md" }
         guard !markdownURLs.isEmpty else {
             didCreateShortcuts = false
-            status = "Aucune note .md lue. Utilise le bouton Choisir des notes .md."
+            status = "No .md note found. Use the Choose .md notes button."
             return
         }
 
         guard confirmBatchReplaceIfNeeded(noteURLs: markdownURLs, destinationURL: destinationURL) else {
             didCreateShortcuts = false
-            status = "Creation annulee."
+            status = "Creation cancelled."
             return
         }
 
@@ -189,14 +189,14 @@ struct ContentView: View {
 
         guard !results.isEmpty else {
             didCreateShortcuts = false
-            status = "Aucun raccourci cree.\n\(failures.prefix(2).joined(separator: "\n"))"
+            status = "No shortcut created.\n\(failures.prefix(2).joined(separator: "\n"))"
             return
         }
 
         generatedAppURL = results.last?.appURL
         didCreateShortcuts = true
-        let failureLine = failures.isEmpty ? "" : "\nErreurs: \(failures.count)"
-        status = "\(results.count) raccourci(s) cree(s)\nDernier: \(results.last?.noteName ?? "-")\nDestination: \(destinationURL.path)\(failureLine)"
+        let failureLine = failures.isEmpty ? "" : "\nErrors: \(failures.count)"
+        status = "\(results.count) shortcut(s) created\nLast: \(results.last?.noteName ?? "-")\nDestination: \(destinationURL.path)\(failureLine)"
     }
 
     private func confirmBatchReplaceIfNeeded(noteURLs: [URL], destinationURL: URL) -> Bool {
@@ -209,11 +209,11 @@ struct ContentView: View {
         guard !existing.isEmpty else { return true }
 
         let alert = NSAlert()
-        alert.messageText = "Remplacer les raccourcis existants ?"
+        alert.messageText = "Replace existing shortcuts?"
         alert.informativeText = existing.prefix(6).map(\.lastPathComponent).joined(separator: "\n")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Remplacer tout")
-        alert.addButton(withTitle: "Annuler")
+        alert.addButton(withTitle: "Replace all")
+        alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -304,11 +304,11 @@ enum NotePlanShortcutError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notMarkdown:
-            return "Le fichier depose doit etre une note .md."
+            return "Dropped files must be .md notes."
         case .emptyNoteName:
-            return "Le nom de la note est vide."
+            return "The note name is empty."
         case .cancelled:
-            return "Operation annulee."
+            return "Operation cancelled."
         case .verificationFailed(let message), .commandFailed(let message):
             return message
         }
@@ -386,7 +386,7 @@ struct NotePlanShortcutGenerator {
     private static func setPlistStrings(_ values: [String: String], plistURL: URL) throws {
         let data = try Data(contentsOf: plistURL)
         guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
-            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
+            throw NotePlanShortcutError.commandFailed("Unreadable Info.plist: \(plistURL.path)")
         }
         for (key, value) in values {
             plist[key] = value
@@ -399,7 +399,7 @@ struct NotePlanShortcutGenerator {
         let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
         var data = try Data(contentsOf: plistURL)
         guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
-            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
+            throw NotePlanShortcutError.commandFailed("Unreadable Info.plist: \(plistURL.path)")
         }
         plist.removeValue(forKey: "CFBundleIconFile")
         plist.removeValue(forKey: "CFBundleIconName")
@@ -419,17 +419,17 @@ struct NotePlanShortcutGenerator {
             }
         }
         guard result == 0 else {
-            throw NotePlanShortcutError.commandFailed("rename() a echoue: \(String(cString: strerror(errno)))")
+            throw NotePlanShortcutError.commandFailed("rename() failed: \(String(cString: strerror(errno)))")
         }
     }
 
     private static func verify(appURL: URL, noteName: String, noteURLString: String) throws {
         guard FileManager.default.fileExists(atPath: appURL.path) else {
-            throw NotePlanShortcutError.verificationFailed("Verification echouee: le dossier .app n'existe pas.")
+            throw NotePlanShortcutError.verificationFailed("Verification failed: .app folder does not exist.")
         }
 
         guard appURL.lastPathComponent == "\(noteName).app" else {
-            throw NotePlanShortcutError.verificationFailed("Verification echouee: nom .app incorrect.")
+            throw NotePlanShortcutError.verificationFailed("Verification failed: wrong .app name.")
         }
 
         let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
@@ -438,20 +438,20 @@ struct NotePlanShortcutGenerator {
         let storedURL = try plistValue("NotePlanShortcutURL", plistURL: plistURL)
 
         guard bundleName == noteName else {
-            throw NotePlanShortcutError.verificationFailed("Verification echouee: CFBundleName incorrect.")
+            throw NotePlanShortcutError.verificationFailed("Verification failed: wrong CFBundleName.")
         }
 
         guard displayName == noteName else {
-            throw NotePlanShortcutError.verificationFailed("Verification echouee: CFBundleDisplayName incorrect.")
+            throw NotePlanShortcutError.verificationFailed("Verification failed: wrong CFBundleDisplayName.")
         }
 
         guard storedURL == noteURLString else {
-            throw NotePlanShortcutError.verificationFailed("Verification echouee: URL NotePlan incorrecte.")
+            throw NotePlanShortcutError.verificationFailed("Verification failed: wrong NotePlan URL.")
         }
 
         let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
         guard !FileManager.default.fileExists(atPath: defaultIconURL.path) else {
-            throw NotePlanShortcutError.verificationFailed("Verification echouee: icone par defaut non supprimee.")
+            throw NotePlanShortcutError.verificationFailed("Verification failed: default icon was not removed.")
         }
     }
 
