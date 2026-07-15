@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var destinationURL: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     @State private var generatedAppURL: URL?
     @State private var status = "Destination par defaut: Downloads. Depose une ou plusieurs notes .md."
+    @State private var didCreateShortcuts = false
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -75,11 +76,20 @@ struct ContentView: View {
                 Spacer()
             }
 
-            Text(status)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .top, spacing: 8) {
+                if didCreateShortcuts {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.green)
+                        .accessibilityLabel("Raccourci cree")
+                }
+
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(24)
     }
@@ -124,6 +134,7 @@ struct ContentView: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             destinationURL = url
+            didCreateShortcuts = false
             status = "Destination choisie: \(url.path)"
         }
     }
@@ -142,17 +153,20 @@ struct ContentView: View {
 
     private func createShortcutsFromNotes(_ noteURLs: [URL]) {
         guard let destinationURL else {
+            didCreateShortcuts = false
             status = "Choisis d'abord un dossier destination."
             return
         }
 
         let markdownURLs = noteURLs.filter { $0.pathExtension.lowercased() == "md" }
         guard !markdownURLs.isEmpty else {
+            didCreateShortcuts = false
             status = "Aucune note .md lue. Utilise le bouton Choisir des notes .md."
             return
         }
 
         guard confirmBatchReplaceIfNeeded(noteURLs: markdownURLs, destinationURL: destinationURL) else {
+            didCreateShortcuts = false
             status = "Creation annulee."
             return
         }
@@ -174,11 +188,13 @@ struct ContentView: View {
         }
 
         guard !results.isEmpty else {
+            didCreateShortcuts = false
             status = "Aucun raccourci cree.\n\(failures.prefix(2).joined(separator: "\n"))"
             return
         }
 
         generatedAppURL = results.last?.appURL
+        didCreateShortcuts = true
         let failureLine = failures.isEmpty ? "" : "\nErreurs: \(failures.count)"
         status = "\(results.count) raccourci(s) cree(s)\nDernier: \(results.last?.noteName ?? "-")\nDestination: \(destinationURL.path)\(failureLine)"
     }
