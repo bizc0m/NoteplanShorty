@@ -56,6 +56,15 @@ sips -z 1024 1024 "$ROOT_DIR/assets/logo.png" --out "$ROOT/icon-source.png" >/de
 "$BIN" --cli-generate "$ROOT/Icon Note.md" "$OUT" --icon "$ROOT/icon-source.png"
 assert_app "Icon Note" "noteplan://x-callback-url/openNote?noteTitle=Icon%20Note" "CustomIcon"
 
+print -- "# batch"
+print -- "- test" > "$ROOT/Batch One.md"
+print -- "- test" > "$ROOT/Batch Two.md"
+print -- "- test" > "$ROOT/Batch Trois.md"
+"$BIN" --cli-generate "$ROOT/Batch One.md" "$ROOT/Batch Two.md" "$ROOT/Batch Trois.md" "$OUT"
+assert_app "Batch One" "noteplan://x-callback-url/openNote?noteTitle=Batch%20One"
+assert_app "Batch Two" "noteplan://x-callback-url/openNote?noteTitle=Batch%20Two"
+assert_app "Batch Trois" "noteplan://x-callback-url/openNote?noteTitle=Batch%20Trois"
+
 print -- "OK: generation checks passed (real binary, --cli-generate path)"
 print -- "NOTE: this exercises NotePlanShortcutGenerator.generate() exactly as drag&drop and the file picker call it."
 print -- "NOTE: the AppKit drag&drop pasteboard-reading code itself is NOT exercised by this script and must be tested by a real Finder drag."

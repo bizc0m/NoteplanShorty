@@ -43,7 +43,7 @@ struct NotePlanShortcutMakerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(width: 620, height: 420)
+                .frame(width: 640, height: 440)
         }
         .windowResizability(.contentSize)
     }
@@ -53,7 +53,7 @@ struct ContentView: View {
     @State private var destinationURL: URL?
     @State private var iconURL: URL?
     @State private var generatedAppURL: URL?
-    @State private var status = "Choisis un dossier destination, puis depose une note .md."
+    @State private var status = "Choisis un dossier destination, puis depose une ou plusieurs notes .md."
     @State private var isDropTargeted = false
     @State private var useCustomIcon = false
 
@@ -98,8 +98,8 @@ struct ContentView: View {
             }
 
             HStack {
-                Button("Choisir une note .md") {
-                    chooseNote()
+                Button("Choisir des notes .md") {
+                    chooseNotes()
                 }
 
                 Button("Reveler le raccourci") {
@@ -128,14 +128,14 @@ struct ContentView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 30))
-                        Text("Deposer une note .md")
+                        Text("Deposer une ou plusieurs notes .md")
                             .font(.callout)
                     }
                 }
                 .allowsHitTesting(false)
 
             FileDropZone(
-                onDrop: { url in createShortcutFromNote(url) },
+                onDrop: { urls in createShortcutsFromNotes(urls) },
                 onTargetedChange: { targeted in isDropTargeted = targeted }
             )
         }
@@ -169,52 +169,77 @@ struct ContentView: View {
         }
     }
 
-    private func chooseNote() {
+    private func chooseNotes() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [UTType(filenameExtension: "md")].compactMap { $0 }
 
         if panel.runModal() == .OK {
-            createShortcutFromNote(panel.url)
+            createShortcutsFromNotes(panel.urls)
         }
     }
 
-    private func createShortcutFromNote(_ noteURL: URL?) {
+    private func createShortcutsFromNotes(_ noteURLs: [URL]) {
         guard let destinationURL else {
             status = "Choisis d'abord un dossier destination."
             return
         }
 
-        guard let noteURL else {
-            status = "Note non lue depuis le drop. Utilise le bouton Choisir une note .md."
+        let markdownURLs = noteURLs.filter { $0.pathExtension.lowercased() == "md" }
+        guard !markdownURLs.isEmpty else {
+            status = "Aucune note .md lue. Utilise le bouton Choisir des notes .md."
             return
         }
 
-        do {
-            let result = try NotePlanShortcutGenerator.generate(
-                noteURL: noteURL,
-                destinationURL: destinationURL,
-                iconURL: useCustomIcon ? iconURL : nil,
-                confirmReplace: confirmReplace(appURL:)
-            )
-            generatedAppURL = result.appURL
-            let iconLine = result.iconApplied ? "\nIcone optimisee appliquee" : ""
-            status = "Note recue: \(result.noteName)\nNom extrait: \(result.noteName)\nApp creee: \(result.appURL.path)\(iconLine)"
-        } catch NotePlanShortcutError.cancelled {
+        guard confirmBatchReplaceIfNeeded(noteURLs: markdownURLs, destinationURL: destinationURL) else {
             status = "Creation annulee."
-        } catch {
-            status = "Erreur: \(error.localizedDescription)"
+            return
         }
+
+        var results: [ShortcutResult] = []
+        var failures: [String] = []
+
+        for noteURL in markdownURLs {
+            do {
+                let result = try NotePlanShortcutGenerator.generate(
+                    noteURL: noteURL,
+                    destinationURL: destinationURL,
+                    iconURL: useCustomIcon ? iconURL : nil,
+                    confirmReplace: { _ in true }
+                )
+                results.append(result)
+            } catch {
+                failures.append("\(noteURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        guard !results.isEmpty else {
+            status = "Aucun raccourci cree.\n\(failures.prefix(2).joined(separator: "\n"))"
+            return
+        }
+
+        generatedAppURL = results.last?.appURL
+        let iconLine = results.contains { $0.iconApplied } ? "\nIcone optimisee appliquee" : ""
+        let failureLine = failures.isEmpty ? "" : "\nErreurs: \(failures.count)"
+        status = "\(results.count) raccourci(s) cree(s)\nDernier: \(results.last?.noteName ?? "-")\nDestination: \(destinationURL.path)\(iconLine)\(failureLine)"
     }
 
-    private func confirmReplace(appURL: URL) -> Bool {
+    private func confirmBatchReplaceIfNeeded(noteURLs: [URL], destinationURL: URL) -> Bool {
+        let existing = noteURLs.compactMap { noteURL -> URL? in
+            let noteName = noteURL.deletingPathExtension().lastPathComponent.precomposedStringWithCanonicalMapping
+            let appURL = destinationURL.appendingPathComponent("\(noteName).app", isDirectory: true)
+            return FileManager.default.fileExists(atPath: appURL.path) ? appURL : nil
+        }
+
+        guard !existing.isEmpty else { return true }
+
         let alert = NSAlert()
-        alert.messageText = "Remplacer le raccourci existant ?"
-        alert.informativeText = appURL.path
+        alert.messageText = "Remplacer les raccourcis existants ?"
+        alert.informativeText = existing.prefix(6).map(\.lastPathComponent).joined(separator: "\n")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Remplacer")
+        alert.addButton(withTitle: "Remplacer tout")
         alert.addButton(withTitle: "Annuler")
         return alert.runModal() == .alertFirstButtonReturn
     }
@@ -228,7 +253,7 @@ struct ContentView: View {
 /// SwiftUI bridge for a native AppKit drop target, overlaid on the SwiftUI
 /// visual so hit-testing and pasteboard reading happen entirely in AppKit.
 struct FileDropZone: NSViewRepresentable {
-    let onDrop: (URL) -> Void
+    let onDrop: ([URL]) -> Void
     let onTargetedChange: (Bool) -> Void
 
     func makeNSView(context: Context) -> FileDropCatcherView {
@@ -252,7 +277,7 @@ struct FileDropZone: NSViewRepresentable {
 /// always local files on disk, never file promises (Photos/Mail-style virtual
 /// files), so `NSFilePromiseReceiver` handling is not needed here.
 final class FileDropCatcherView: NSView {
-    var onDropFileURL: ((URL) -> Void)?
+    var onDropFileURL: (([URL]) -> Void)?
     var onTargetedChange: ((Bool) -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -266,13 +291,13 @@ final class FileDropCatcherView: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard firstFileURL(from: sender) != nil else { return [] }
+        guard !fileURLs(from: sender).isEmpty else { return [] }
         onTargetedChange?(true)
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        firstFileURL(from: sender) != nil ? .copy : []
+        fileURLs(from: sender).isEmpty ? [] : .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -284,23 +309,24 @@ final class FileDropCatcherView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        firstFileURL(from: sender) != nil
+        !fileURLs(from: sender).isEmpty
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         onTargetedChange?(false)
-        guard let url = firstFileURL(from: sender) else { return false }
-        onDropFileURL?(url)
+        let urls = fileURLs(from: sender)
+        guard !urls.isEmpty else { return false }
+        onDropFileURL?(urls)
         return true
     }
 
-    private func firstFileURL(from sender: NSDraggingInfo) -> URL? {
+    private func fileURLs(from sender: NSDraggingInfo) -> [URL] {
         let pasteboard = sender.draggingPasteboard
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] else {
-            return nil
+            return []
         }
-        return urls.first
+        return urls
     }
 }
 
@@ -600,32 +626,35 @@ enum CLIRunner {
         var iconURL: URL?
         if let iconIndex = remaining.firstIndex(of: "--icon") {
             guard remaining.indices.contains(iconIndex + 1) else {
-                FileHandle.standardError.write("Usage: --cli-generate <note.md> <destinationDir> [--icon image]\n".data(using: .utf8)!)
+                FileHandle.standardError.write("Usage: --cli-generate <note.md> [note2.md ...] <destinationDir> [--icon image]\n".data(using: .utf8)!)
                 exit(64)
             }
             iconURL = URL(fileURLWithPath: remaining[iconIndex + 1])
             remaining.removeSubrange(iconIndex...(iconIndex + 1))
         }
 
-        guard remaining.count == 2 else {
-            FileHandle.standardError.write("Usage: --cli-generate <note.md> <destinationDir> [--icon image]\n".data(using: .utf8)!)
+        guard remaining.count >= 2 else {
+            FileHandle.standardError.write("Usage: --cli-generate <note.md> [note2.md ...] <destinationDir> [--icon image]\n".data(using: .utf8)!)
             exit(64)
         }
 
-        let noteURL = URL(fileURLWithPath: remaining[0])
-        let destinationURL = URL(fileURLWithPath: remaining[1])
+        let destinationURL = URL(fileURLWithPath: remaining.removeLast())
+        let noteURLs = remaining.map { URL(fileURLWithPath: $0) }
 
         do {
-            let result = try NotePlanShortcutGenerator.generate(
-                noteURL: noteURL,
-                destinationURL: destinationURL,
-                iconURL: iconURL,
-                confirmReplace: { _ in true }
-            )
-            print("APP_PATH=\(result.appURL.path)")
-            print("NOTE_NAME=\(result.noteName)")
-            print("NOTE_URL=\(result.noteURLString)")
-            print("ICON_APPLIED=\(result.iconApplied)")
+            for noteURL in noteURLs {
+                let result = try NotePlanShortcutGenerator.generate(
+                    noteURL: noteURL,
+                    destinationURL: destinationURL,
+                    iconURL: iconURL,
+                    confirmReplace: { _ in true }
+                )
+                print("APP_PATH=\(result.appURL.path)")
+                print("NOTE_NAME=\(result.noteName)")
+                print("NOTE_URL=\(result.noteURLString)")
+                print("ICON_APPLIED=\(result.iconApplied)")
+            }
+            print("COUNT=\(noteURLs.count)")
             exit(0)
         } catch {
             FileHandle.standardError.write("ERROR: \(error.localizedDescription)\n".data(using: .utf8)!)

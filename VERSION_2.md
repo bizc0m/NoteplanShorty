@@ -11,6 +11,7 @@ Branche de travail pour la prochaine version de NotePlan Shortcut Maker.
 ## Objectifs possibles
 
 - option pour ajouter ou non une icone personnalisee optimisee
+- generation de plusieurs raccourcis en une seule operation
 - verifier/ameliorer le drag Finder sur davantage de configurations macOS
 - ajouter une signature/notarisation si distribution publique
 - ajouter un workflow GitHub release automatise

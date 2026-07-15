@@ -40,11 +40,11 @@ open "/Applications/NotePlan Shortcut Maker.app"
 
 1. Cliquer sur `Choisir destination`.
 2. Optionnel : activer `Icone personnalisee` et choisir une image PNG/JPG/TIFF/ICNS.
-3. Deposer une note `.md`.
-4. Confirmer le remplacement si `Nom.app` existe deja.
+3. Deposer une ou plusieurs notes `.md`.
+4. Confirmer le remplacement si des `Nom.app` existent deja.
 5. Cliquer sur `Reveler le raccourci`.
 
-Fallback : `Choisir une note .md` utilise le meme generateur que le drag & drop.
+Fallback : `Choisir des notes .md` utilise le meme generateur que le drag & drop.
 
 ### Icone personnalisee
 
@@ -72,6 +72,7 @@ bouton `Choisir une note .md`. Il verifie :
 - cas accentue : `Été & idées.app`, avec verification des octets exacts (NFC, pas NFD)
 - icone personnalisee optimisee et referencee par `CFBundleIconFile = CustomIcon`
 - absence d'icone par defaut quand aucune icone personnalisee n'est choisie
+- generation batch de plusieurs notes en une seule operation
 
 Ce script ne teste pas le geste de drag & drop lui-meme (mecanique AppKit
 `draggingEntered`/`performDragOperation`) : ca a ete verifie manuellement avec un vrai
