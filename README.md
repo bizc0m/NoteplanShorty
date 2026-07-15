@@ -1,5 +1,7 @@
 # NotePlan Shortcut Maker
 
+![NotePlan Shortcut Maker logo](assets/logo.png)
+
 App macOS SwiftUI minimale pour creer un raccourci `.app` depuis une note NotePlan `.md`.
 
 Source active : `Sources/NotePlanShortcutMaker/main_v2.0.swift`. Le drop Finder est gere par
