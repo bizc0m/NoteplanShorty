@@ -12,7 +12,6 @@ swift build -c release
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/NotePlanShortcutMaker" "$APP_DIR/Contents/MacOS/NotePlanShortcutMaker"
-cp "$ROOT_DIR/assets/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -27,8 +26,6 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <string>NotePlan Shortcut Maker</string>
   <key>CFBundleDisplayName</key>
   <string>NotePlan Shortcut Maker</string>
-  <key>CFBundleIconFile</key>
-  <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

@@ -1,17 +1,10 @@
-# NotePlan Shortcut Maker
+# NotePlan Shortcut Maker v3
 
-![NotePlan Shortcut Maker logo](assets/logo.png)
+App macOS SwiftUI minimale pour creer des raccourcis `.app` depuis des notes NotePlan `.md`.
 
-App macOS SwiftUI minimale pour creer un raccourci `.app` depuis une note NotePlan `.md`.
+## Regle v3
 
-Source active : `Sources/NotePlanShortcutMaker/main_v2.0.swift`. Le drop Finder est gere par
-une `NSView` AppKit native (`registerForDraggedTypes`, lecture via `NSPasteboard.readObjects`),
-pas par `.onDrop`/`NSItemProvider` (peu fiable pour les drags Finder). Ancienne version
-SwiftUI `.onDrop` archivee a plat : `main_v1.0.swift` (racine du projet, non compilee).
-
-## Regle
-
-Une note deposee cree un raccourci du meme nom.
+V3 genere uniquement des raccourcis sans icone personnalisee, sans image et sans logo embarque.
 
 Exemple :
 
@@ -39,22 +32,11 @@ open "/Applications/NotePlan Shortcut Maker.app"
 ## Utilisation
 
 1. Cliquer sur `Choisir destination`.
-2. Optionnel : deposer une image dans la zone `icone` ou cliquer sur `Choisir image`.
-3. Verifier l'apercu de l'icone.
-4. Deposer une ou plusieurs notes `.md` dans la zone notes.
-5. Confirmer le remplacement si des `Nom.app` existent deja.
-6. Cliquer sur `Reveler le raccourci`.
+2. Deposer une ou plusieurs notes `.md`.
+3. Confirmer le remplacement si des `Nom.app` existent deja.
+4. Cliquer sur `Reveler le raccourci`.
 
 Fallback : `Choisir des notes .md` utilise le meme generateur que le drag & drop.
-
-### Icone personnalisee
-
-L'image choisie est optimisee automatiquement en `.icns` avec une taille maximale de
-512 px. Le generateur n'embarque pas l'image source complete dans le raccourci cree.
-La zone icone affiche un apercu de l'image choisie avant generation.
-
-Sans icone personnalisee, le generateur supprime l'icone AppleScript par defaut pour
-reduire le poids du raccourci cree.
 
 ## Verification
 
@@ -62,31 +44,13 @@ reduire le poids du raccourci cree.
 ./test-generation.sh
 ```
 
-Le test compile le binaire puis l'appelle via un mode CLI cache (`--cli-generate note.md dest/`),
-qui declenche exactement le meme `NotePlanShortcutGenerator.generate()` que le drag & drop et le
-bouton `Choisir une note .md`. Il verifie :
+Le test verifie :
 
-- `TODO Suisse.app`
-- absence de `TODO Suisse 2.app`, y compris en relancant sur la meme note (doit remplacer en place)
-- `CFBundleName`
-- `CFBundleDisplayName`
-- URL NotePlan stockee dans `NotePlanShortcutURL`
-- cas accentue : `Été & idées.app`, avec verification des octets exacts (NFC, pas NFD)
-- icone personnalisee optimisee et referencee par `CFBundleIconFile = CustomIcon`
-- absence d'icone par defaut quand aucune icone personnalisee n'est choisie
-- generation batch de plusieurs notes en une seule operation
-
-Ce script ne teste pas le geste de drag & drop lui-meme (mecanique AppKit
-`draggingEntered`/`performDragOperation`) : ca a ete verifie manuellement avec un vrai
-drag Finder -> fenetre de l'app pendant le developpement.
-
-### Piege Unicode (NFC vs NFD)
-
-Sur macOS, `URL.lastPathComponent`, `FileManager` et les arguments passes a `Process`
-decomposent silencieusement les caracteres accentues (NFD : `e` + accent combinant) meme
-quand le fichier source est en NFC (`é` precompose). Consequence si on ignore ca : l'URL
-NotePlan et le `.app` genere pour `Été & idées.md` auraient des octets differents de ce que
-l'utilisateur a tape, alors qu'ils s'affichent pareil a l'ecran. Le generateur recompose le
-nom en NFC des l'extraction, ecrit les valeurs du plist via `PropertyListSerialization`
-(pas `plutil` en sous-processus) et renomme le `.app` final avec le syscall `rename()` brut
-plutot que `FileManager` — les trois seules methodes qui preservent les octets NFC.
+- generation simple
+- remplacement sans `Nom 2.app`
+- noms accentues NFC
+- generation batch
+- absence de `CFBundleIconFile`
+- absence de `CFBundleIconName`
+- absence de `applet.icns`
+- absence de `CustomIcon.icns`

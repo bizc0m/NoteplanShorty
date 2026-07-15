@@ -1,33 +1,5 @@
-// v2.0 2026-07-15 STABLE-DEPENDANT (depend de NotePlan.app installe pour l'action finale
-//   du raccourci genere ; non verifie ce tour-ci, voir PREUVE)
-// DEMANDE: Repars de zero, app macOS "NotePlan Shortcut Maker" avec drag&drop Finder
-//   robuste (NSViewRepresentable + NSView + registerForDraggedTypes plutot que
-//   SwiftUI .onDrop), qui genere DESTINATION/<nom note>.app ouvrant
-//   noteplan://x-callback-url/openNote?noteTitle=<nom encode>.
-// SORTIE: Remplace le drop SwiftUI .onDrop/NSItemProvider (fragile: completion
-//   asynchrone, pertes intermittentes de drop Finder) par une NSView AppKit
-//   (draggingEntered/prepareForDragOperation/performDragOperation, lecture via
-//   NSPasteboard.readObjects(forClasses:[NSURL.self], options:[.urlReadingFileURLsOnly: true])),
-//   enveloppee en NSViewRepresentable superposee au visuel SwiftUI existant.
-//   Ajoute un mode CLI cache (--cli-generate) qui appelle exactement le meme
-//   generateur que le drop et le bouton "Choisir une note .md", pour permettre
-//   un test automatise du binaire compile. Corrige au passage un bug decouvert en
-//   testant : URL/FileManager/Process decomposent les caracteres accentues (NFD)
-//   meme pour des fichiers source en NFC, ce qui aurait produit des noms .app et
-//   des URL NotePlan avec les mauvais octets pour "Été & idées.md". Fix : nom
-//   recompose en NFC, plist ecrit via PropertyListSerialization (pas plutil en
-//   sous-processus), renommage final via le syscall rename() brut.
-// PREUVE: swift build -c release OK. test-generation.sh (mode --cli-generate, exerce
-//   le vrai binaire) passe : "TODO Suisse" + relance sur la meme note (pas de
-//   "TODO Suisse 2.app", remplacement en place) + "Été & idées" avec verification des
-//   octets exacts du nom et de l'URL stockee (NFC). Drag & drop Finder reel teste via
-//   automatisation GUI (computer-use) : fichier "Idée GUI.md" glisse depuis une vraie
-//   fenetre Finder jusque dans la zone de drop de l'app compilee (dist/), statut
-//   "Note recue: Idée GUI" affiche, .app cree avec les bons octets et le bon plist,
-//   bouton "Reveler le raccourci" verifie (ouvre Finder, selectionne l'app). Non
-//   verifie : que le .app genere ouvre effectivement NotePlan et navigue vers la
-//   bonne note (necessite NotePlan.app installe et lance).
-// Fichier precedent: main_v1.0.swift (archive a la racine du projet)
+// v3 2026-07-15
+// Version minimale: generation de raccourcis NotePlan sans icone ni image.
 
 import AppKit
 import Darwin
@@ -43,7 +15,7 @@ struct NotePlanShortcutMakerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(width: 720, height: 500)
+                .frame(width: 620, height: 360)
         }
         .windowResizability(.contentSize)
     }
@@ -51,12 +23,9 @@ struct NotePlanShortcutMakerApp: App {
 
 struct ContentView: View {
     @State private var destinationURL: URL?
-    @State private var iconURL: URL?
-    @State private var iconPreview: NSImage?
     @State private var generatedAppURL: URL?
     @State private var status = "Choisis un dossier destination, puis depose une ou plusieurs notes .md."
     @State private var isDropTargeted = false
-    @State private var isIconDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -81,24 +50,9 @@ struct ContentView: View {
                 }
             }
 
-            HStack(alignment: .top, spacing: 14) {
-                iconDropZone
-                    .frame(width: 170, height: 170)
-
-                notesDropZone
-                    .frame(height: 170)
-            }
+            notesDropZone
 
             HStack {
-                Button("Choisir image") {
-                    chooseIcon()
-                }
-
-                Button("Retirer icone") {
-                    clearIcon()
-                }
-                .disabled(iconURL == nil)
-
                 Button("Choisir des notes .md") {
                     chooseNotes()
                 }
@@ -118,40 +72,6 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(24)
-    }
-
-    private var iconDropZone: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isIconDropTargeted ? Color.accentColor : Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [7]))
-                .background(Color.secondary.opacity(isIconDropTargeted ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    VStack(spacing: 8) {
-                        if let iconPreview {
-                            Image(nsImage: iconPreview)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 96, height: 96)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 30))
-                        }
-
-                        Text(iconURL == nil ? "Deposer image icone" : iconURL?.lastPathComponent ?? "Icone choisie")
-                            .font(.caption)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 8)
-                    }
-                }
-                .allowsHitTesting(false)
-
-            FileDropZone(
-                onDrop: { urls in setIconFromDrop(urls) },
-                onTargetedChange: { targeted in isIconDropTargeted = targeted }
-            )
-        }
     }
 
     private var notesDropZone: some View {
@@ -174,6 +94,7 @@ struct ContentView: View {
                 onTargetedChange: { targeted in isDropTargeted = targeted }
             )
         }
+        .frame(height: 150)
     }
 
     private func chooseDestination() {
@@ -188,43 +109,6 @@ struct ContentView: View {
             destinationURL = url
             status = "Destination choisie: \(url.path)"
         }
-    }
-
-    private func chooseIcon() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.png, .jpeg, .tiff, UTType(filenameExtension: "icns")].compactMap { $0 }
-
-        if panel.runModal() == .OK {
-            setIcon(panel.url)
-        }
-    }
-
-    private func setIconFromDrop(_ urls: [URL]) {
-        guard let url = urls.first(where: isSupportedIconImage(_:)) else {
-            status = "Image icone non reconnue. Formats: PNG, JPG, TIFF, ICNS."
-            return
-        }
-        setIcon(url)
-    }
-
-    private func setIcon(_ url: URL?) {
-        guard let url else { return }
-        iconURL = url
-        iconPreview = NSImage(contentsOf: url)
-        status = "Image icone choisie: \(url.lastPathComponent)"
-    }
-
-    private func clearIcon() {
-        iconURL = nil
-        iconPreview = nil
-        status = "Icone personnalisee retiree."
-    }
-
-    private func isSupportedIconImage(_ url: URL) -> Bool {
-        ["png", "jpg", "jpeg", "tif", "tiff", "icns"].contains(url.pathExtension.lowercased())
     }
 
     private func chooseNotes() {
@@ -264,7 +148,6 @@ struct ContentView: View {
                 let result = try NotePlanShortcutGenerator.generate(
                     noteURL: noteURL,
                     destinationURL: destinationURL,
-                    iconURL: iconURL,
                     confirmReplace: { _ in true }
                 )
                 results.append(result)
@@ -279,9 +162,8 @@ struct ContentView: View {
         }
 
         generatedAppURL = results.last?.appURL
-        let iconLine = results.contains { $0.iconApplied } ? "\nIcone optimisee appliquee" : ""
         let failureLine = failures.isEmpty ? "" : "\nErreurs: \(failures.count)"
-        status = "\(results.count) raccourci(s) cree(s)\nDernier: \(results.last?.noteName ?? "-")\nDestination: \(destinationURL.path)\(iconLine)\(failureLine)"
+        status = "\(results.count) raccourci(s) cree(s)\nDernier: \(results.last?.noteName ?? "-")\nDestination: \(destinationURL.path)\(failureLine)"
     }
 
     private func confirmBatchReplaceIfNeeded(noteURLs: [URL], destinationURL: URL) -> Bool {
@@ -308,8 +190,6 @@ struct ContentView: View {
     }
 }
 
-/// SwiftUI bridge for a native AppKit drop target, overlaid on the SwiftUI
-/// visual so hit-testing and pasteboard reading happen entirely in AppKit.
 struct FileDropZone: NSViewRepresentable {
     let onDrop: ([URL]) -> Void
     let onTargetedChange: (Bool) -> Void
@@ -327,13 +207,6 @@ struct FileDropZone: NSViewRepresentable {
     }
 }
 
-/// Native AppKit drag & drop target. Deliberately avoids SwiftUI's `.onDrop`
-/// (backed by `NSItemProvider.loadItem`, which resolves asynchronously and
-/// intermittently drops Finder file drags). Reads the dropped file URL
-/// synchronously from the pasteboard, which is the reliable path for local
-/// Finder drags. Only `.fileURL`/`.URL` are registered: NotePlan notes are
-/// always local files on disk, never file promises (Photos/Mail-style virtual
-/// files), so `NSFilePromiseReceiver` handling is not needed here.
 final class FileDropCatcherView: NSView {
     var onDropFileURL: (([URL]) -> Void)?
     var onTargetedChange: ((Bool) -> Void)?
@@ -413,23 +286,18 @@ struct ShortcutResult {
     let noteName: String
     let noteURLString: String
     let appURL: URL
-    let iconApplied: Bool
 }
 
 struct NotePlanShortcutGenerator {
     static func generate(
         noteURL: URL,
         destinationURL: URL,
-        iconURL: URL? = nil,
         confirmReplace: (URL) -> Bool = { _ in true }
     ) throws -> ShortcutResult {
         guard noteURL.pathExtension.lowercased() == "md" else {
             throw NotePlanShortcutError.notMarkdown
         }
 
-        // URL.lastPathComponent decomposes accented characters (NFD) even when the
-        // file on disk is NFC-encoded. Re-compose so the generated NotePlan URL and
-        // .app name match what the user actually typed/sees, not the decomposed form.
         let noteName = noteURL.deletingPathExtension().lastPathComponent.precomposedStringWithCanonicalMapping
         guard !noteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw NotePlanShortcutError.emptyNoteName
@@ -446,28 +314,19 @@ struct NotePlanShortcutGenerator {
         }
 
         let noteURLString = "noteplan://x-callback-url/openNote?noteTitle=\(urlEncode(noteName))"
-
-        // Foundation's URL/Process path handling decomposes any accented path to NFD,
-        // even though the filesystem itself preserves whatever bytes it's given (verified
-        // with a raw POSIX mkdir/rename). Build the final path as a plain Swift String,
-        // never round-tripped through URL.path, so the .app lands on disk with the exact
-        // NFC name the user typed.
         let finalAppPath = destinationURL.path + "/" + noteName + ".app"
-        try compileShortcutApp(noteURLString: noteURLString, appName: noteName, iconURL: iconURL, finalAppPath: finalAppPath, destinationDir: destinationURL)
-        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString, expectsCustomIcon: iconURL != nil)
+        try compileShortcutApp(noteURLString: noteURLString, appName: noteName, finalAppPath: finalAppPath, destinationDir: destinationURL)
+        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString)
 
-        return ShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL, iconApplied: iconURL != nil)
+        return ShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL)
     }
 
-    private static func compileShortcutApp(noteURLString: String, appName: String, iconURL: URL?, finalAppPath: String, destinationDir: URL) throws {
+    private static func compileShortcutApp(noteURLString: String, appName: String, finalAppPath: String, destinationDir: URL) throws {
         let script = """
         tell application "NotePlan" to activate
         open location "\(noteURLString)"
         """
 
-        // osacompile is invoked as a subprocess: Process argument marshaling decomposes
-        // Unicode too, so compile into an ASCII-only temp name first (immune to NFD/NFC
-        // issues) and only introduce the accented name via a raw rename(2) at the end.
         let tempAppURL = destinationDir.appendingPathComponent(".nps-tmp-\(UUID().uuidString).app")
 
         do {
@@ -478,18 +337,11 @@ struct NotePlanShortcutGenerator {
                 [
                     "CFBundleName": appName,
                     "CFBundleDisplayName": appName,
-                    "NotePlanShortcutURL": noteURLString,
-                    "CFBundleIconFile": iconURL == nil ? "" : "CustomIcon"
+                    "NotePlanShortcutURL": noteURLString
                 ],
                 plistURL: plistURL
             )
-
-            if let iconURL {
-                try applyOptimizedIcon(from: iconURL, toAppURL: tempAppURL)
-            } else {
-                try removeDefaultAppletIcon(fromAppURL: tempAppURL)
-            }
-
+            try removeDefaultAppletIcon(fromAppURL: tempAppURL)
             try renamePreservingUnicode(fromPath: tempAppURL.path, toPath: finalAppPath)
         } catch {
             try? FileManager.default.removeItem(at: tempAppURL)
@@ -497,38 +349,16 @@ struct NotePlanShortcutGenerator {
         }
     }
 
-    private static func applyOptimizedIcon(from sourceURL: URL, toAppURL appURL: URL) throws {
-        let iconURL: URL
-        if sourceURL.pathExtension.lowercased() == "icns" {
-            iconURL = sourceURL
-        } else {
-            iconURL = try makeOptimizedICNS(from: sourceURL)
-        }
-
-        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
-        let targetURL = resourcesURL.appendingPathComponent("CustomIcon.icns")
-        if FileManager.default.fileExists(atPath: targetURL.path) {
-            try FileManager.default.removeItem(at: targetURL)
-        }
-        try FileManager.default.copyItem(at: iconURL, to: targetURL)
-        try removeConflictingAppletIconKeys(fromAppURL: appURL)
-        try run("/usr/bin/touch", [appURL.path])
-    }
-
-    private static func removeConflictingAppletIconKeys(fromAppURL appURL: URL) throws {
-        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
-        var data = try Data(contentsOf: plistURL)
+    private static func setPlistStrings(_ values: [String: String], plistURL: URL) throws {
+        let data = try Data(contentsOf: plistURL)
         guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
             throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
         }
-        plist.removeValue(forKey: "CFBundleIconName")
-        data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try data.write(to: plistURL)
-
-        let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
-        if FileManager.default.fileExists(atPath: defaultIconURL.path) {
-            try FileManager.default.removeItem(at: defaultIconURL)
+        for (key, value) in values {
+            plist[key] = value
         }
+        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try newData.write(to: plistURL)
     }
 
     private static func removeDefaultAppletIcon(fromAppURL appURL: URL) throws {
@@ -542,59 +372,12 @@ struct NotePlanShortcutGenerator {
         data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         try data.write(to: plistURL)
 
-        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
-        for fileName in ["applet.icns"] {
-            let fileURL = resourcesURL.appendingPathComponent(fileName)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.removeItem(at: fileURL)
-            }
+        let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
+        if FileManager.default.fileExists(atPath: defaultIconURL.path) {
+            try FileManager.default.removeItem(at: defaultIconURL)
         }
     }
 
-    private static func makeOptimizedICNS(from sourceURL: URL) throws -> URL {
-        let workURL = FileManager.default.temporaryDirectory.appendingPathComponent("nps-icon-\(UUID().uuidString)", isDirectory: true)
-        let iconsetURL = workURL.appendingPathComponent("CustomIcon.iconset", isDirectory: true)
-        try FileManager.default.createDirectory(at: iconsetURL, withIntermediateDirectories: true)
-
-        let specs = [
-            ("16x16", 16),
-            ("16x16@2x", 32),
-            ("32x32", 32),
-            ("32x32@2x", 64),
-            ("128x128", 128),
-            ("128x128@2x", 256),
-            ("256x256", 256),
-            ("256x256@2x", 512),
-            ("512x512", 512)
-        ]
-
-        for (name, pixels) in specs {
-            let outputURL = iconsetURL.appendingPathComponent("icon_\(name).png")
-            try run("/usr/bin/sips", ["-z", "\(pixels)", "\(pixels)", sourceURL.path, "--out", outputURL.path])
-        }
-
-        let icnsURL = workURL.appendingPathComponent("CustomIcon.icns")
-        try run("/usr/bin/iconutil", ["-c", "icns", iconsetURL.path, "-o", icnsURL.path])
-        return icnsURL
-    }
-
-    /// Writes plist string values via `PropertyListSerialization` instead of `plutil`
-    /// as a subprocess argument: subprocess argument marshaling on Darwin decomposes
-    /// Unicode (NFD), which would corrupt accented CFBundleName/NotePlanShortcutURL values.
-    private static func setPlistStrings(_ values: [String: String], plistURL: URL) throws {
-        let data = try Data(contentsOf: plistURL)
-        guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
-            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
-        }
-        for (key, value) in values {
-            plist[key] = value
-        }
-        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try newData.write(to: plistURL)
-    }
-
-    /// Renames using the raw POSIX syscall (bypassing FileManager/URL, which decompose
-    /// accented paths to NFD) so the final .app keeps the exact NFC bytes it was given.
     private static func renamePreservingUnicode(fromPath: String, toPath: String) throws {
         let result = fromPath.withCString { src in
             toPath.withCString { dst in
@@ -606,7 +389,7 @@ struct NotePlanShortcutGenerator {
         }
     }
 
-    private static func verify(appURL: URL, noteName: String, noteURLString: String, expectsCustomIcon: Bool) throws {
+    private static func verify(appURL: URL, noteName: String, noteURLString: String) throws {
         guard FileManager.default.fileExists(atPath: appURL.path) else {
             throw NotePlanShortcutError.verificationFailed("Verification echouee: le dossier .app n'existe pas.")
         }
@@ -632,20 +415,9 @@ struct NotePlanShortcutGenerator {
             throw NotePlanShortcutError.verificationFailed("Verification echouee: URL NotePlan incorrecte.")
         }
 
-        if expectsCustomIcon {
-            let iconFile = try plistValue("CFBundleIconFile", plistURL: plistURL)
-            guard iconFile == "CustomIcon" else {
-                throw NotePlanShortcutError.verificationFailed("Verification echouee: icone personnalisee non referencee.")
-            }
-            let customIconURL = appURL.appendingPathComponent("Contents/Resources/CustomIcon.icns")
-            guard FileManager.default.fileExists(atPath: customIconURL.path) else {
-                throw NotePlanShortcutError.verificationFailed("Verification echouee: CustomIcon.icns absent.")
-            }
-        } else {
-            let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
-            guard !FileManager.default.fileExists(atPath: defaultIconURL.path) else {
-                throw NotePlanShortcutError.verificationFailed("Verification echouee: icone par defaut non supprimee.")
-            }
+        let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
+        guard !FileManager.default.fileExists(atPath: defaultIconURL.path) else {
+            throw NotePlanShortcutError.verificationFailed("Verification echouee: icone par defaut non supprimee.")
         }
     }
 
@@ -689,28 +461,14 @@ struct NotePlanShortcutGenerator {
     }
 }
 
-/// Hidden CLI entry point so an automated test script can exercise the real
-/// compiled binary's generator logic (identical code path as drag & drop and
-/// the file picker) without driving the GUI. Only the drag & drop mechanism
-/// itself still requires a real, manual/GUI-driven Finder drag to verify.
 enum CLIRunner {
     static func runIfRequested() {
         let args = CommandLine.arguments
         guard let flagIndex = args.firstIndex(of: "--cli-generate") else { return }
 
         var remaining = Array(args[(flagIndex + 1)...])
-        var iconURL: URL?
-        if let iconIndex = remaining.firstIndex(of: "--icon") {
-            guard remaining.indices.contains(iconIndex + 1) else {
-                FileHandle.standardError.write("Usage: --cli-generate <note.md> [note2.md ...] <destinationDir> [--icon image]\n".data(using: .utf8)!)
-                exit(64)
-            }
-            iconURL = URL(fileURLWithPath: remaining[iconIndex + 1])
-            remaining.removeSubrange(iconIndex...(iconIndex + 1))
-        }
-
         guard remaining.count >= 2 else {
-            FileHandle.standardError.write("Usage: --cli-generate <note.md> [note2.md ...] <destinationDir> [--icon image]\n".data(using: .utf8)!)
+            FileHandle.standardError.write("Usage: --cli-generate <note.md> [note2.md ...] <destinationDir>\n".data(using: .utf8)!)
             exit(64)
         }
 
@@ -722,13 +480,11 @@ enum CLIRunner {
                 let result = try NotePlanShortcutGenerator.generate(
                     noteURL: noteURL,
                     destinationURL: destinationURL,
-                    iconURL: iconURL,
                     confirmReplace: { _ in true }
                 )
                 print("APP_PATH=\(result.appURL.path)")
                 print("NOTE_NAME=\(result.noteName)")
                 print("NOTE_URL=\(result.noteURLString)")
-                print("ICON_APPLIED=\(result.iconApplied)")
             }
             print("COUNT=\(noteURLs.count)")
             exit(0)
