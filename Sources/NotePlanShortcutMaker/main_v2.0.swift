@@ -43,7 +43,7 @@ struct NotePlanShortcutMakerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(width: 640, height: 440)
+                .frame(width: 720, height: 500)
         }
         .windowResizability(.contentSize)
     }
@@ -52,10 +52,11 @@ struct NotePlanShortcutMakerApp: App {
 struct ContentView: View {
     @State private var destinationURL: URL?
     @State private var iconURL: URL?
+    @State private var iconPreview: NSImage?
     @State private var generatedAppURL: URL?
     @State private var status = "Choisis un dossier destination, puis depose une ou plusieurs notes .md."
     @State private var isDropTargeted = false
-    @State private var useCustomIcon = false
+    @State private var isIconDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -80,24 +81,24 @@ struct ContentView: View {
                 }
             }
 
-            dropZone
+            HStack(alignment: .top, spacing: 14) {
+                iconDropZone
+                    .frame(width: 170, height: 170)
 
-            HStack(spacing: 10) {
-                Toggle("Icone personnalisee", isOn: $useCustomIcon)
-
-                Button("Choisir image") {
-                    chooseIcon()
-                }
-                .disabled(!useCustomIcon)
-
-                Text(iconURL?.lastPathComponent ?? "Aucune image")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                notesDropZone
+                    .frame(height: 170)
             }
 
             HStack {
+                Button("Choisir image") {
+                    chooseIcon()
+                }
+
+                Button("Retirer icone") {
+                    clearIcon()
+                }
+                .disabled(iconURL == nil)
+
                 Button("Choisir des notes .md") {
                     chooseNotes()
                 }
@@ -119,7 +120,41 @@ struct ContentView: View {
         .padding(24)
     }
 
-    private var dropZone: some View {
+    private var iconDropZone: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isIconDropTargeted ? Color.accentColor : Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [7]))
+                .background(Color.secondary.opacity(isIconDropTargeted ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    VStack(spacing: 8) {
+                        if let iconPreview {
+                            Image(nsImage: iconPreview)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 96, height: 96)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 30))
+                        }
+
+                        Text(iconURL == nil ? "Deposer image icone" : iconURL?.lastPathComponent ?? "Icone choisie")
+                            .font(.caption)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                    }
+                }
+                .allowsHitTesting(false)
+
+            FileDropZone(
+                onDrop: { urls in setIconFromDrop(urls) },
+                onTargetedChange: { targeted in isIconDropTargeted = targeted }
+            )
+        }
+    }
+
+    private var notesDropZone: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [7]))
@@ -139,7 +174,6 @@ struct ContentView: View {
                 onTargetedChange: { targeted in isDropTargeted = targeted }
             )
         }
-        .frame(height: 130)
     }
 
     private func chooseDestination() {
@@ -164,9 +198,33 @@ struct ContentView: View {
         panel.allowedContentTypes = [.png, .jpeg, .tiff, UTType(filenameExtension: "icns")].compactMap { $0 }
 
         if panel.runModal() == .OK {
-            iconURL = panel.url
-            status = "Image icone choisie: \(panel.url?.lastPathComponent ?? "")"
+            setIcon(panel.url)
         }
+    }
+
+    private func setIconFromDrop(_ urls: [URL]) {
+        guard let url = urls.first(where: isSupportedIconImage(_:)) else {
+            status = "Image icone non reconnue. Formats: PNG, JPG, TIFF, ICNS."
+            return
+        }
+        setIcon(url)
+    }
+
+    private func setIcon(_ url: URL?) {
+        guard let url else { return }
+        iconURL = url
+        iconPreview = NSImage(contentsOf: url)
+        status = "Image icone choisie: \(url.lastPathComponent)"
+    }
+
+    private func clearIcon() {
+        iconURL = nil
+        iconPreview = nil
+        status = "Icone personnalisee retiree."
+    }
+
+    private func isSupportedIconImage(_ url: URL) -> Bool {
+        ["png", "jpg", "jpeg", "tif", "tiff", "icns"].contains(url.pathExtension.lowercased())
     }
 
     private func chooseNotes() {
@@ -206,7 +264,7 @@ struct ContentView: View {
                 let result = try NotePlanShortcutGenerator.generate(
                     noteURL: noteURL,
                     destinationURL: destinationURL,
-                    iconURL: useCustomIcon ? iconURL : nil,
+                    iconURL: iconURL,
                     confirmReplace: { _ in true }
                 )
                 results.append(result)

@@ -39,10 +39,11 @@ open "/Applications/NotePlan Shortcut Maker.app"
 ## Utilisation
 
 1. Cliquer sur `Choisir destination`.
-2. Optionnel : activer `Icone personnalisee` et choisir une image PNG/JPG/TIFF/ICNS.
-3. Deposer une ou plusieurs notes `.md`.
-4. Confirmer le remplacement si des `Nom.app` existent deja.
-5. Cliquer sur `Reveler le raccourci`.
+2. Optionnel : deposer une image dans la zone `icone` ou cliquer sur `Choisir image`.
+3. Verifier l'apercu de l'icone.
+4. Deposer une ou plusieurs notes `.md` dans la zone notes.
+5. Confirmer le remplacement si des `Nom.app` existent deja.
+6. Cliquer sur `Reveler le raccourci`.
 
 Fallback : `Choisir des notes .md` utilise le meme generateur que le drag & drop.
 
@@ -50,6 +51,7 @@ Fallback : `Choisir des notes .md` utilise le meme generateur que le drag & drop
 
 L'image choisie est optimisee automatiquement en `.icns` avec une taille maximale de
 512 px. Le generateur n'embarque pas l'image source complete dans le raccourci cree.
+La zone icone affiche un apercu de l'image choisie avant generation.
 
 Sans icone personnalisee, le generateur supprime l'icone AppleScript par defaut pour
 reduire le poids du raccourci cree.
