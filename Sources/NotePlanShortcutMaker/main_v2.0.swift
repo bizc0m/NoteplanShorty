@@ -22,9 +22,9 @@ struct NotePlanShortcutMakerApp: App {
 }
 
 struct ContentView: View {
-    @State private var destinationURL: URL?
+    @State private var destinationURL: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     @State private var generatedAppURL: URL?
-    @State private var status = "Choisis un dossier destination, puis depose une ou plusieurs notes .md."
+    @State private var status = "Destination par defaut: Downloads. Depose une ou plusieurs notes .md."
     @State private var isDropTargeted = false
 
     var body: some View {
@@ -120,7 +120,7 @@ struct ContentView: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = destinationURL ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+        panel.directoryURL = destinationURL ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
 
         if panel.runModal() == .OK, let url = panel.url {
             destinationURL = url

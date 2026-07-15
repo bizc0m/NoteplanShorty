@@ -33,10 +33,11 @@ open "/Applications/NotePlan Shortcut Maker.app"
 
 ## Utilisation
 
-1. Cliquer sur `Choisir destination`.
-2. Deposer une ou plusieurs notes `.md`.
-3. Confirmer le remplacement si des `Nom.app` existent deja.
-4. Cliquer sur `Reveler le raccourci`.
+1. Par defaut, la destination est `~/Downloads`.
+2. Optionnel : cliquer sur `Choisir destination` pour changer de dossier.
+3. Deposer une ou plusieurs notes `.md`.
+4. Confirmer le remplacement si des `Nom.app` existent deja.
+5. Cliquer sur `Reveler le raccourci`.
 
 Fallback : `Choisir des notes .md` utilise le meme generateur que le drag & drop.
 
