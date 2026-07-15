@@ -1,0 +1,503 @@
+// v2.0 2026-07-15 STABLE-DEPENDANT (depend de NotePlan.app installe pour l'action finale
+//   du raccourci genere ; non verifie ce tour-ci, voir PREUVE)
+// DEMANDE: Repars de zero, app macOS "NotePlan Shortcut Maker" avec drag&drop Finder
+//   robuste (NSViewRepresentable + NSView + registerForDraggedTypes plutot que
+//   SwiftUI .onDrop), qui genere DESTINATION/<nom note>.app ouvrant
+//   noteplan://x-callback-url/openNote?noteTitle=<nom encode>.
+// SORTIE: Remplace le drop SwiftUI .onDrop/NSItemProvider (fragile: completion
+//   asynchrone, pertes intermittentes de drop Finder) par une NSView AppKit
+//   (draggingEntered/prepareForDragOperation/performDragOperation, lecture via
+//   NSPasteboard.readObjects(forClasses:[NSURL.self], options:[.urlReadingFileURLsOnly: true])),
+//   enveloppee en NSViewRepresentable superposee au visuel SwiftUI existant.
+//   Ajoute un mode CLI cache (--cli-generate) qui appelle exactement le meme
+//   generateur que le drop et le bouton "Choisir une note .md", pour permettre
+//   un test automatise du binaire compile. Corrige au passage un bug decouvert en
+//   testant : URL/FileManager/Process decomposent les caracteres accentues (NFD)
+//   meme pour des fichiers source en NFC, ce qui aurait produit des noms .app et
+//   des URL NotePlan avec les mauvais octets pour "Été & idées.md". Fix : nom
+//   recompose en NFC, plist ecrit via PropertyListSerialization (pas plutil en
+//   sous-processus), renommage final via le syscall rename() brut.
+// PREUVE: swift build -c release OK. test-generation.sh (mode --cli-generate, exerce
+//   le vrai binaire) passe : "TODO Suisse" + relance sur la meme note (pas de
+//   "TODO Suisse 2.app", remplacement en place) + "Été & idées" avec verification des
+//   octets exacts du nom et de l'URL stockee (NFC). Drag & drop Finder reel teste via
+//   automatisation GUI (computer-use) : fichier "Idée GUI.md" glisse depuis une vraie
+//   fenetre Finder jusque dans la zone de drop de l'app compilee (dist/), statut
+//   "Note recue: Idée GUI" affiche, .app cree avec les bons octets et le bon plist,
+//   bouton "Reveler le raccourci" verifie (ouvre Finder, selectionne l'app). Non
+//   verifie : que le .app genere ouvre effectivement NotePlan et navigue vers la
+//   bonne note (necessite NotePlan.app installe et lance).
+// Fichier precedent: main_v1.0.swift (archive a la racine du projet)
+
+import AppKit
+import Darwin
+import SwiftUI
+import UniformTypeIdentifiers
+
+@main
+struct NotePlanShortcutMakerApp: App {
+    init() {
+        CLIRunner.runIfRequested()
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .frame(width: 560, height: 360)
+        }
+        .windowResizability(.contentSize)
+    }
+}
+
+struct ContentView: View {
+    @State private var destinationURL: URL?
+    @State private var generatedAppURL: URL?
+    @State private var status = "Choisis un dossier destination, puis depose une note .md."
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("NotePlan Shortcut Maker")
+                .font(.title2.weight(.semibold))
+
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Destination")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(destinationURL?.path ?? "Aucun dossier choisi")
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer()
+
+                Button("Choisir destination") {
+                    chooseDestination()
+                }
+            }
+
+            dropZone
+
+            HStack {
+                Button("Choisir une note .md") {
+                    chooseNote()
+                }
+
+                Button("Reveler le raccourci") {
+                    revealGeneratedApp()
+                }
+                .disabled(generatedAppURL == nil)
+
+                Spacer()
+            }
+
+            Text(status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(24)
+    }
+
+    private var dropZone: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isDropTargeted ? Color.accentColor : Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [7]))
+                .background(Color.secondary.opacity(isDropTargeted ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    VStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 30))
+                        Text("Deposer une note .md")
+                            .font(.callout)
+                    }
+                }
+                .allowsHitTesting(false)
+
+            FileDropZone(
+                onDrop: { url in createShortcutFromNote(url) },
+                onTargetedChange: { targeted in isDropTargeted = targeted }
+            )
+        }
+        .frame(height: 130)
+    }
+
+    private func chooseDestination() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = destinationURL ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+
+        if panel.runModal() == .OK, let url = panel.url {
+            destinationURL = url
+            status = "Destination choisie: \(url.path)"
+        }
+    }
+
+    private func chooseNote() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "md")].compactMap { $0 }
+
+        if panel.runModal() == .OK {
+            createShortcutFromNote(panel.url)
+        }
+    }
+
+    private func createShortcutFromNote(_ noteURL: URL?) {
+        guard let destinationURL else {
+            status = "Choisis d'abord un dossier destination."
+            return
+        }
+
+        guard let noteURL else {
+            status = "Note non lue depuis le drop. Utilise le bouton Choisir une note .md."
+            return
+        }
+
+        do {
+            let result = try NotePlanShortcutGenerator.generate(
+                noteURL: noteURL,
+                destinationURL: destinationURL,
+                confirmReplace: confirmReplace(appURL:)
+            )
+            generatedAppURL = result.appURL
+            status = "Note recue: \(result.noteName)\nNom extrait: \(result.noteName)\nApp creee: \(result.appURL.path)"
+        } catch NotePlanShortcutError.cancelled {
+            status = "Creation annulee."
+        } catch {
+            status = "Erreur: \(error.localizedDescription)"
+        }
+    }
+
+    private func confirmReplace(appURL: URL) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Remplacer le raccourci existant ?"
+        alert.informativeText = appURL.path
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remplacer")
+        alert.addButton(withTitle: "Annuler")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func revealGeneratedApp() {
+        guard let generatedAppURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([generatedAppURL])
+    }
+}
+
+/// SwiftUI bridge for a native AppKit drop target, overlaid on the SwiftUI
+/// visual so hit-testing and pasteboard reading happen entirely in AppKit.
+struct FileDropZone: NSViewRepresentable {
+    let onDrop: (URL) -> Void
+    let onTargetedChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> FileDropCatcherView {
+        let view = FileDropCatcherView()
+        view.onDropFileURL = onDrop
+        view.onTargetedChange = onTargetedChange
+        return view
+    }
+
+    func updateNSView(_ nsView: FileDropCatcherView, context: Context) {
+        nsView.onDropFileURL = onDrop
+        nsView.onTargetedChange = onTargetedChange
+    }
+}
+
+/// Native AppKit drag & drop target. Deliberately avoids SwiftUI's `.onDrop`
+/// (backed by `NSItemProvider.loadItem`, which resolves asynchronously and
+/// intermittently drops Finder file drags). Reads the dropped file URL
+/// synchronously from the pasteboard, which is the reliable path for local
+/// Finder drags. Only `.fileURL`/`.URL` are registered: NotePlan notes are
+/// always local files on disk, never file promises (Photos/Mail-style virtual
+/// files), so `NSFilePromiseReceiver` handling is not needed here.
+final class FileDropCatcherView: NSView {
+    var onDropFileURL: ((URL) -> Void)?
+    var onTargetedChange: ((Bool) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL, .URL])
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        registerForDraggedTypes([.fileURL, .URL])
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard firstFileURL(from: sender) != nil else { return [] }
+        onTargetedChange?(true)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        firstFileURL(from: sender) != nil ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onTargetedChange?(false)
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        onTargetedChange?(false)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        firstFileURL(from: sender) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onTargetedChange?(false)
+        guard let url = firstFileURL(from: sender) else { return false }
+        onDropFileURL?(url)
+        return true
+    }
+
+    private func firstFileURL(from sender: NSDraggingInfo) -> URL? {
+        let pasteboard = sender.draggingPasteboard
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] else {
+            return nil
+        }
+        return urls.first
+    }
+}
+
+enum NotePlanShortcutError: LocalizedError {
+    case notMarkdown
+    case emptyNoteName
+    case cancelled
+    case verificationFailed(String)
+    case commandFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notMarkdown:
+            return "Le fichier depose doit etre une note .md."
+        case .emptyNoteName:
+            return "Le nom de la note est vide."
+        case .cancelled:
+            return "Operation annulee."
+        case .verificationFailed(let message), .commandFailed(let message):
+            return message
+        }
+    }
+}
+
+struct ShortcutResult {
+    let noteName: String
+    let noteURLString: String
+    let appURL: URL
+}
+
+struct NotePlanShortcutGenerator {
+    static func generate(
+        noteURL: URL,
+        destinationURL: URL,
+        confirmReplace: (URL) -> Bool = { _ in true }
+    ) throws -> ShortcutResult {
+        guard noteURL.pathExtension.lowercased() == "md" else {
+            throw NotePlanShortcutError.notMarkdown
+        }
+
+        // URL.lastPathComponent decomposes accented characters (NFD) even when the
+        // file on disk is NFC-encoded. Re-compose so the generated NotePlan URL and
+        // .app name match what the user actually typed/sees, not the decomposed form.
+        let noteName = noteURL.deletingPathExtension().lastPathComponent.precomposedStringWithCanonicalMapping
+        guard !noteName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw NotePlanShortcutError.emptyNoteName
+        }
+
+        try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+
+        let appURL = destinationURL.appendingPathComponent("\(noteName).app", isDirectory: true)
+        if FileManager.default.fileExists(atPath: appURL.path) {
+            guard confirmReplace(appURL) else {
+                throw NotePlanShortcutError.cancelled
+            }
+            try FileManager.default.removeItem(at: appURL)
+        }
+
+        let noteURLString = "noteplan://x-callback-url/openNote?noteTitle=\(urlEncode(noteName))"
+
+        // Foundation's URL/Process path handling decomposes any accented path to NFD,
+        // even though the filesystem itself preserves whatever bytes it's given (verified
+        // with a raw POSIX mkdir/rename). Build the final path as a plain Swift String,
+        // never round-tripped through URL.path, so the .app lands on disk with the exact
+        // NFC name the user typed.
+        let finalAppPath = destinationURL.path + "/" + noteName + ".app"
+        try compileShortcutApp(noteURLString: noteURLString, appName: noteName, finalAppPath: finalAppPath, destinationDir: destinationURL)
+        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString)
+
+        return ShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL)
+    }
+
+    private static func compileShortcutApp(noteURLString: String, appName: String, finalAppPath: String, destinationDir: URL) throws {
+        let script = """
+        tell application "NotePlan" to activate
+        open location "\(noteURLString)"
+        """
+
+        // osacompile is invoked as a subprocess: Process argument marshaling decomposes
+        // Unicode too, so compile into an ASCII-only temp name first (immune to NFD/NFC
+        // issues) and only introduce the accented name via a raw rename(2) at the end.
+        let tempAppURL = destinationDir.appendingPathComponent(".nps-tmp-\(UUID().uuidString).app")
+
+        do {
+            try run("/usr/bin/osacompile", ["-o", tempAppURL.path, "-e", script])
+
+            let plistURL = tempAppURL.appendingPathComponent("Contents/Info.plist")
+            try setPlistStrings(
+                [
+                    "CFBundleName": appName,
+                    "CFBundleDisplayName": appName,
+                    "NotePlanShortcutURL": noteURLString
+                ],
+                plistURL: plistURL
+            )
+
+            try renamePreservingUnicode(fromPath: tempAppURL.path, toPath: finalAppPath)
+        } catch {
+            try? FileManager.default.removeItem(at: tempAppURL)
+            throw error
+        }
+    }
+
+    /// Writes plist string values via `PropertyListSerialization` instead of `plutil`
+    /// as a subprocess argument: subprocess argument marshaling on Darwin decomposes
+    /// Unicode (NFD), which would corrupt accented CFBundleName/NotePlanShortcutURL values.
+    private static func setPlistStrings(_ values: [String: String], plistURL: URL) throws {
+        let data = try Data(contentsOf: plistURL)
+        guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
+        }
+        for (key, value) in values {
+            plist[key] = value
+        }
+        let newData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try newData.write(to: plistURL)
+    }
+
+    /// Renames using the raw POSIX syscall (bypassing FileManager/URL, which decompose
+    /// accented paths to NFD) so the final .app keeps the exact NFC bytes it was given.
+    private static func renamePreservingUnicode(fromPath: String, toPath: String) throws {
+        let result = fromPath.withCString { src in
+            toPath.withCString { dst in
+                rename(src, dst)
+            }
+        }
+        guard result == 0 else {
+            throw NotePlanShortcutError.commandFailed("rename() a echoue: \(String(cString: strerror(errno)))")
+        }
+    }
+
+    private static func verify(appURL: URL, noteName: String, noteURLString: String) throws {
+        guard FileManager.default.fileExists(atPath: appURL.path) else {
+            throw NotePlanShortcutError.verificationFailed("Verification echouee: le dossier .app n'existe pas.")
+        }
+
+        guard appURL.lastPathComponent == "\(noteName).app" else {
+            throw NotePlanShortcutError.verificationFailed("Verification echouee: nom .app incorrect.")
+        }
+
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        let bundleName = try plistValue("CFBundleName", plistURL: plistURL)
+        let displayName = try plistValue("CFBundleDisplayName", plistURL: plistURL)
+        let storedURL = try plistValue("NotePlanShortcutURL", plistURL: plistURL)
+
+        guard bundleName == noteName else {
+            throw NotePlanShortcutError.verificationFailed("Verification echouee: CFBundleName incorrect.")
+        }
+
+        guard displayName == noteName else {
+            throw NotePlanShortcutError.verificationFailed("Verification echouee: CFBundleDisplayName incorrect.")
+        }
+
+        guard storedURL == noteURLString else {
+            throw NotePlanShortcutError.verificationFailed("Verification echouee: URL NotePlan incorrecte.")
+        }
+    }
+
+    private static func plistValue(_ key: String, plistURL: URL) throws -> String {
+        try runAndCapture("/usr/bin/plutil", ["-extract", key, "raw", plistURL.path])
+    }
+
+    private static func run(_ executable: String, _ arguments: [String]) throws {
+        _ = try runAndCapture(executable, arguments)
+    }
+
+    private static func runAndCapture(_ executable: String, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+
+        try process.run()
+        process.waitUntilExit()
+
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        let outputText = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard process.terminationStatus == 0 else {
+            throw NotePlanShortcutError.commandFailed(errorText.isEmpty ? outputText : errorText)
+        }
+
+        return outputText
+    }
+
+    static func urlEncode(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+}
+
+/// Hidden CLI entry point so an automated test script can exercise the real
+/// compiled binary's generator logic (identical code path as drag & drop and
+/// the file picker) without driving the GUI. Only the drag & drop mechanism
+/// itself still requires a real, manual/GUI-driven Finder drag to verify.
+enum CLIRunner {
+    static func runIfRequested() {
+        let args = CommandLine.arguments
+        guard let flagIndex = args.firstIndex(of: "--cli-generate") else { return }
+
+        let remaining = Array(args[(flagIndex + 1)...])
+        guard remaining.count == 2 else {
+            FileHandle.standardError.write("Usage: --cli-generate <note.md> <destinationDir>\n".data(using: .utf8)!)
+            exit(64)
+        }
+
+        let noteURL = URL(fileURLWithPath: remaining[0])
+        let destinationURL = URL(fileURLWithPath: remaining[1])
+
+        do {
+            let result = try NotePlanShortcutGenerator.generate(
+                noteURL: noteURL,
+                destinationURL: destinationURL,
+                confirmReplace: { _ in true }
+            )
+            print("APP_PATH=\(result.appURL.path)")
+            print("NOTE_NAME=\(result.noteName)")
+            print("NOTE_URL=\(result.noteURLString)")
+            exit(0)
+        } catch {
+            FileHandle.standardError.write("ERROR: \(error.localizedDescription)\n".data(using: .utf8)!)
+            exit(1)
+        }
+    }
+}
