@@ -453,6 +453,24 @@ struct NotePlanShortcutGenerator {
             try FileManager.default.removeItem(at: targetURL)
         }
         try FileManager.default.copyItem(at: iconURL, to: targetURL)
+        try removeConflictingAppletIconKeys(fromAppURL: appURL)
+        try run("/usr/bin/touch", [appURL.path])
+    }
+
+    private static func removeConflictingAppletIconKeys(fromAppURL appURL: URL) throws {
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        var data = try Data(contentsOf: plistURL)
+        guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
+        }
+        plist.removeValue(forKey: "CFBundleIconName")
+        data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: plistURL)
+
+        let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
+        if FileManager.default.fileExists(atPath: defaultIconURL.path) {
+            try FileManager.default.removeItem(at: defaultIconURL)
+        }
     }
 
     private static func removeDefaultAppletIcon(fromAppURL appURL: URL) throws {

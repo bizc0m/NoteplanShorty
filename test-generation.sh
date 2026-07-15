@@ -28,7 +28,9 @@ assert_app() {
 
   if [ "$expected_icon" = "CustomIcon" ]; then
     test "$(plutil -extract CFBundleIconFile raw "$app_path/Contents/Info.plist")" = "$expected_icon"
+    ! plutil -extract CFBundleIconName raw "$app_path/Contents/Info.plist" >/dev/null 2>&1
     test -f "$app_path/Contents/Resources/CustomIcon.icns"
+    test ! -f "$app_path/Contents/Resources/applet.icns"
     test "$(stat -f %z "$app_path/Contents/Resources/CustomIcon.icns")" -lt 800000
   else
     ! plutil -extract CFBundleIconFile raw "$app_path/Contents/Info.plist" >/dev/null 2>&1
