@@ -3,6 +3,8 @@
 App macOS SwiftUI minimale pour creer des raccourcis `.app` depuis des notes NotePlan `.md`.
 Le logo est affiche dans l'app generateur, mais les raccourcis generes restent sans image ni icone.
 
+![NotePlan Shortcut Maker v3](assets/readme/noteplan-shortcut-maker-v3.png)
+
 ## Regle v3
 
 V3 genere uniquement des raccourcis sans icone personnalisee, sans image et sans logo embarque.
