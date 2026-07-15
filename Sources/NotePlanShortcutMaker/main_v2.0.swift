@@ -330,7 +330,8 @@ struct NotePlanShortcutGenerator {
             try FileManager.default.removeItem(at: appURL)
         }
 
-        let noteURLString = "noteplan://x-callback-url/openNote?noteTitle=\(urlEncode(noteName))"
+        let noteFilename = notePlanFilename(for: noteURL)
+        let noteURLString = "noteplan://x-callback-url/openNote?filename=\(urlEncodePath(noteFilename))"
         let finalAppPath = destinationURL.path + "/" + noteName + ".app"
         try compileShortcutApp(noteURLString: noteURLString, appName: noteName, finalAppPath: finalAppPath, destinationDir: destinationURL)
         try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString)
@@ -471,9 +472,17 @@ struct NotePlanShortcutGenerator {
         return outputText
     }
 
-    static func urlEncode(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?")
+    static func notePlanFilename(for noteURL: URL) -> String {
+        let components = noteURL.pathComponents
+        if let notesIndex = components.lastIndex(of: "Notes"), notesIndex < components.count - 1 {
+            return components[(notesIndex + 1)...].joined(separator: "/").precomposedStringWithCanonicalMapping
+        }
+        return noteURL.lastPathComponent.precomposedStringWithCanonicalMapping
+    }
+
+    static func urlEncodePath(_ value: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "?&=#%")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }

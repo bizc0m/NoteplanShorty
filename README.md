@@ -12,7 +12,14 @@ Exemple :
 
 - note : `TODO Suisse.md`
 - raccourci : `DESTINATION/TODO Suisse.app`
-- URL : `noteplan://x-callback-url/openNote?noteTitle=TODO%20Suisse`
+- URL : `noteplan://x-callback-url/openNote?filename=TODO%20Suisse.md`
+
+Si la note vient du dossier NotePlan `Notes/`, l'URL utilise le chemin relatif complet.
+Exemple :
+
+- note : `Notes/!!! Rapide/_Todo/TODO Suisse.md`
+- raccourci : `DESTINATION/TODO Suisse.app`
+- URL : `noteplan://x-callback-url/openNote?filename=!!!%20Rapide/_Todo/TODO%20Suisse.md`
 
 La note `.md` n'est jamais modifiee, copiee ou deplacee.
 
@@ -53,6 +60,7 @@ Le test verifie :
 - remplacement sans `Nom 2.app`
 - noms accentues NFC
 - generation batch
+- chemin relatif NotePlan via `filename=`
 - absence de `CFBundleIconFile`
 - absence de `CFBundleIconName`
 - absence de `applet.icns`
