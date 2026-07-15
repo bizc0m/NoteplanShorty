@@ -43,7 +43,7 @@ struct NotePlanShortcutMakerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(width: 560, height: 360)
+                .frame(width: 620, height: 420)
         }
         .windowResizability(.contentSize)
     }
@@ -51,9 +51,11 @@ struct NotePlanShortcutMakerApp: App {
 
 struct ContentView: View {
     @State private var destinationURL: URL?
+    @State private var iconURL: URL?
     @State private var generatedAppURL: URL?
     @State private var status = "Choisis un dossier destination, puis depose une note .md."
     @State private var isDropTargeted = false
+    @State private var useCustomIcon = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -79,6 +81,21 @@ struct ContentView: View {
             }
 
             dropZone
+
+            HStack(spacing: 10) {
+                Toggle("Icone personnalisee", isOn: $useCustomIcon)
+
+                Button("Choisir image") {
+                    chooseIcon()
+                }
+                .disabled(!useCustomIcon)
+
+                Text(iconURL?.lastPathComponent ?? "Aucune image")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
 
             HStack {
                 Button("Choisir une note .md") {
@@ -139,6 +156,19 @@ struct ContentView: View {
         }
     }
 
+    private func chooseIcon() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.png, .jpeg, .tiff, UTType(filenameExtension: "icns")].compactMap { $0 }
+
+        if panel.runModal() == .OK {
+            iconURL = panel.url
+            status = "Image icone choisie: \(panel.url?.lastPathComponent ?? "")"
+        }
+    }
+
     private func chooseNote() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -166,10 +196,12 @@ struct ContentView: View {
             let result = try NotePlanShortcutGenerator.generate(
                 noteURL: noteURL,
                 destinationURL: destinationURL,
+                iconURL: useCustomIcon ? iconURL : nil,
                 confirmReplace: confirmReplace(appURL:)
             )
             generatedAppURL = result.appURL
-            status = "Note recue: \(result.noteName)\nNom extrait: \(result.noteName)\nApp creee: \(result.appURL.path)"
+            let iconLine = result.iconApplied ? "\nIcone optimisee appliquee" : ""
+            status = "Note recue: \(result.noteName)\nNom extrait: \(result.noteName)\nApp creee: \(result.appURL.path)\(iconLine)"
         } catch NotePlanShortcutError.cancelled {
             status = "Creation annulee."
         } catch {
@@ -297,12 +329,14 @@ struct ShortcutResult {
     let noteName: String
     let noteURLString: String
     let appURL: URL
+    let iconApplied: Bool
 }
 
 struct NotePlanShortcutGenerator {
     static func generate(
         noteURL: URL,
         destinationURL: URL,
+        iconURL: URL? = nil,
         confirmReplace: (URL) -> Bool = { _ in true }
     ) throws -> ShortcutResult {
         guard noteURL.pathExtension.lowercased() == "md" else {
@@ -335,13 +369,13 @@ struct NotePlanShortcutGenerator {
         // never round-tripped through URL.path, so the .app lands on disk with the exact
         // NFC name the user typed.
         let finalAppPath = destinationURL.path + "/" + noteName + ".app"
-        try compileShortcutApp(noteURLString: noteURLString, appName: noteName, finalAppPath: finalAppPath, destinationDir: destinationURL)
-        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString)
+        try compileShortcutApp(noteURLString: noteURLString, appName: noteName, iconURL: iconURL, finalAppPath: finalAppPath, destinationDir: destinationURL)
+        try verify(appURL: appURL, noteName: noteName, noteURLString: noteURLString, expectsCustomIcon: iconURL != nil)
 
-        return ShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL)
+        return ShortcutResult(noteName: noteName, noteURLString: noteURLString, appURL: appURL, iconApplied: iconURL != nil)
     }
 
-    private static func compileShortcutApp(noteURLString: String, appName: String, finalAppPath: String, destinationDir: URL) throws {
+    private static func compileShortcutApp(noteURLString: String, appName: String, iconURL: URL?, finalAppPath: String, destinationDir: URL) throws {
         let script = """
         tell application "NotePlan" to activate
         open location "\(noteURLString)"
@@ -360,16 +394,64 @@ struct NotePlanShortcutGenerator {
                 [
                     "CFBundleName": appName,
                     "CFBundleDisplayName": appName,
-                    "NotePlanShortcutURL": noteURLString
+                    "NotePlanShortcutURL": noteURLString,
+                    "CFBundleIconFile": iconURL == nil ? "applet" : "CustomIcon"
                 ],
                 plistURL: plistURL
             )
+
+            if let iconURL {
+                try applyOptimizedIcon(from: iconURL, toAppURL: tempAppURL)
+            }
 
             try renamePreservingUnicode(fromPath: tempAppURL.path, toPath: finalAppPath)
         } catch {
             try? FileManager.default.removeItem(at: tempAppURL)
             throw error
         }
+    }
+
+    private static func applyOptimizedIcon(from sourceURL: URL, toAppURL appURL: URL) throws {
+        let iconURL: URL
+        if sourceURL.pathExtension.lowercased() == "icns" {
+            iconURL = sourceURL
+        } else {
+            iconURL = try makeOptimizedICNS(from: sourceURL)
+        }
+
+        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let targetURL = resourcesURL.appendingPathComponent("CustomIcon.icns")
+        if FileManager.default.fileExists(atPath: targetURL.path) {
+            try FileManager.default.removeItem(at: targetURL)
+        }
+        try FileManager.default.copyItem(at: iconURL, to: targetURL)
+    }
+
+    private static func makeOptimizedICNS(from sourceURL: URL) throws -> URL {
+        let workURL = FileManager.default.temporaryDirectory.appendingPathComponent("nps-icon-\(UUID().uuidString)", isDirectory: true)
+        let iconsetURL = workURL.appendingPathComponent("CustomIcon.iconset", isDirectory: true)
+        try FileManager.default.createDirectory(at: iconsetURL, withIntermediateDirectories: true)
+
+        let specs = [
+            ("16x16", 16),
+            ("16x16@2x", 32),
+            ("32x32", 32),
+            ("32x32@2x", 64),
+            ("128x128", 128),
+            ("128x128@2x", 256),
+            ("256x256", 256),
+            ("256x256@2x", 512),
+            ("512x512", 512)
+        ]
+
+        for (name, pixels) in specs {
+            let outputURL = iconsetURL.appendingPathComponent("icon_\(name).png")
+            try run("/usr/bin/sips", ["-z", "\(pixels)", "\(pixels)", sourceURL.path, "--out", outputURL.path])
+        }
+
+        let icnsURL = workURL.appendingPathComponent("CustomIcon.icns")
+        try run("/usr/bin/iconutil", ["-c", "icns", iconsetURL.path, "-o", icnsURL.path])
+        return icnsURL
     }
 
     /// Writes plist string values via `PropertyListSerialization` instead of `plutil`
@@ -400,7 +482,7 @@ struct NotePlanShortcutGenerator {
         }
     }
 
-    private static func verify(appURL: URL, noteName: String, noteURLString: String) throws {
+    private static func verify(appURL: URL, noteName: String, noteURLString: String, expectsCustomIcon: Bool) throws {
         guard FileManager.default.fileExists(atPath: appURL.path) else {
             throw NotePlanShortcutError.verificationFailed("Verification echouee: le dossier .app n'existe pas.")
         }
@@ -413,6 +495,7 @@ struct NotePlanShortcutGenerator {
         let bundleName = try plistValue("CFBundleName", plistURL: plistURL)
         let displayName = try plistValue("CFBundleDisplayName", plistURL: plistURL)
         let storedURL = try plistValue("NotePlanShortcutURL", plistURL: plistURL)
+        let iconFile = try plistValue("CFBundleIconFile", plistURL: plistURL)
 
         guard bundleName == noteName else {
             throw NotePlanShortcutError.verificationFailed("Verification echouee: CFBundleName incorrect.")
@@ -424,6 +507,16 @@ struct NotePlanShortcutGenerator {
 
         guard storedURL == noteURLString else {
             throw NotePlanShortcutError.verificationFailed("Verification echouee: URL NotePlan incorrecte.")
+        }
+
+        if expectsCustomIcon {
+            guard iconFile == "CustomIcon" else {
+                throw NotePlanShortcutError.verificationFailed("Verification echouee: icone personnalisee non referencee.")
+            }
+            let customIconURL = appURL.appendingPathComponent("Contents/Resources/CustomIcon.icns")
+            guard FileManager.default.fileExists(atPath: customIconURL.path) else {
+                throw NotePlanShortcutError.verificationFailed("Verification echouee: CustomIcon.icns absent.")
+            }
         }
     }
 
@@ -476,9 +569,19 @@ enum CLIRunner {
         let args = CommandLine.arguments
         guard let flagIndex = args.firstIndex(of: "--cli-generate") else { return }
 
-        let remaining = Array(args[(flagIndex + 1)...])
+        var remaining = Array(args[(flagIndex + 1)...])
+        var iconURL: URL?
+        if let iconIndex = remaining.firstIndex(of: "--icon") {
+            guard remaining.indices.contains(iconIndex + 1) else {
+                FileHandle.standardError.write("Usage: --cli-generate <note.md> <destinationDir> [--icon image]\n".data(using: .utf8)!)
+                exit(64)
+            }
+            iconURL = URL(fileURLWithPath: remaining[iconIndex + 1])
+            remaining.removeSubrange(iconIndex...(iconIndex + 1))
+        }
+
         guard remaining.count == 2 else {
-            FileHandle.standardError.write("Usage: --cli-generate <note.md> <destinationDir>\n".data(using: .utf8)!)
+            FileHandle.standardError.write("Usage: --cli-generate <note.md> <destinationDir> [--icon image]\n".data(using: .utf8)!)
             exit(64)
         }
 
@@ -489,11 +592,13 @@ enum CLIRunner {
             let result = try NotePlanShortcutGenerator.generate(
                 noteURL: noteURL,
                 destinationURL: destinationURL,
+                iconURL: iconURL,
                 confirmReplace: { _ in true }
             )
             print("APP_PATH=\(result.appURL.path)")
             print("NOTE_NAME=\(result.noteName)")
             print("NOTE_URL=\(result.noteURLString)")
+            print("ICON_APPLIED=\(result.iconApplied)")
             exit(0)
         } catch {
             FileHandle.standardError.write("ERROR: \(error.localizedDescription)\n".data(using: .utf8)!)
