@@ -29,8 +29,18 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("NotePlan Shortcut Maker")
-                .font(.title2.weight(.semibold))
+            HStack(spacing: 12) {
+                if let logoImage {
+                    Image(nsImage: logoImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                Text("NotePlan Shortcut Maker")
+                    .font(.title2.weight(.semibold))
+            }
 
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -72,6 +82,13 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(24)
+    }
+
+    private var logoImage: NSImage? {
+        guard let url = Bundle.main.url(forResource: "logo", withExtension: "png") else {
+            return nil
+        }
+        return NSImage(contentsOf: url)
     }
 
     private var notesDropZone: some View {

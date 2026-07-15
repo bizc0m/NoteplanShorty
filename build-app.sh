@@ -12,6 +12,7 @@ swift build -c release
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/NotePlanShortcutMaker" "$APP_DIR/Contents/MacOS/NotePlanShortcutMaker"
+cp "$ROOT_DIR/assets/logo.png" "$APP_DIR/Contents/Resources/logo.png"
 
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
