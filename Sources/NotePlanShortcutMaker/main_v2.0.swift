@@ -395,13 +395,15 @@ struct NotePlanShortcutGenerator {
                     "CFBundleName": appName,
                     "CFBundleDisplayName": appName,
                     "NotePlanShortcutURL": noteURLString,
-                    "CFBundleIconFile": iconURL == nil ? "applet" : "CustomIcon"
+                    "CFBundleIconFile": iconURL == nil ? "" : "CustomIcon"
                 ],
                 plistURL: plistURL
             )
 
             if let iconURL {
                 try applyOptimizedIcon(from: iconURL, toAppURL: tempAppURL)
+            } else {
+                try removeDefaultAppletIcon(fromAppURL: tempAppURL)
             }
 
             try renamePreservingUnicode(fromPath: tempAppURL.path, toPath: finalAppPath)
@@ -425,6 +427,26 @@ struct NotePlanShortcutGenerator {
             try FileManager.default.removeItem(at: targetURL)
         }
         try FileManager.default.copyItem(at: iconURL, to: targetURL)
+    }
+
+    private static func removeDefaultAppletIcon(fromAppURL appURL: URL) throws {
+        let plistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        var data = try Data(contentsOf: plistURL)
+        guard var plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw NotePlanShortcutError.commandFailed("Info.plist illisible: \(plistURL.path)")
+        }
+        plist.removeValue(forKey: "CFBundleIconFile")
+        plist.removeValue(forKey: "CFBundleIconName")
+        data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: plistURL)
+
+        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
+        for fileName in ["applet.icns"] {
+            let fileURL = resourcesURL.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+        }
     }
 
     private static func makeOptimizedICNS(from sourceURL: URL) throws -> URL {
@@ -495,7 +517,6 @@ struct NotePlanShortcutGenerator {
         let bundleName = try plistValue("CFBundleName", plistURL: plistURL)
         let displayName = try plistValue("CFBundleDisplayName", plistURL: plistURL)
         let storedURL = try plistValue("NotePlanShortcutURL", plistURL: plistURL)
-        let iconFile = try plistValue("CFBundleIconFile", plistURL: plistURL)
 
         guard bundleName == noteName else {
             throw NotePlanShortcutError.verificationFailed("Verification echouee: CFBundleName incorrect.")
@@ -510,12 +531,18 @@ struct NotePlanShortcutGenerator {
         }
 
         if expectsCustomIcon {
+            let iconFile = try plistValue("CFBundleIconFile", plistURL: plistURL)
             guard iconFile == "CustomIcon" else {
                 throw NotePlanShortcutError.verificationFailed("Verification echouee: icone personnalisee non referencee.")
             }
             let customIconURL = appURL.appendingPathComponent("Contents/Resources/CustomIcon.icns")
             guard FileManager.default.fileExists(atPath: customIconURL.path) else {
                 throw NotePlanShortcutError.verificationFailed("Verification echouee: CustomIcon.icns absent.")
+            }
+        } else {
+            let defaultIconURL = appURL.appendingPathComponent("Contents/Resources/applet.icns")
+            guard !FileManager.default.fileExists(atPath: defaultIconURL.path) else {
+                throw NotePlanShortcutError.verificationFailed("Verification echouee: icone par defaut non supprimee.")
             }
         }
     }

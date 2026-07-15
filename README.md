@@ -51,6 +51,9 @@ Fallback : `Choisir une note .md` utilise le meme generateur que le drag & drop.
 L'image choisie est optimisee automatiquement en `.icns` avec une taille maximale de
 512 px. Le generateur n'embarque pas l'image source complete dans le raccourci cree.
 
+Sans icone personnalisee, le generateur supprime l'icone AppleScript par defaut pour
+reduire le poids du raccourci cree.
+
 ## Verification
 
 ```bash
@@ -68,6 +71,7 @@ bouton `Choisir une note .md`. Il verifie :
 - URL NotePlan stockee dans `NotePlanShortcutURL`
 - cas accentue : `Été & idées.app`, avec verification des octets exacts (NFC, pas NFD)
 - icone personnalisee optimisee et referencee par `CFBundleIconFile = CustomIcon`
+- absence d'icone par defaut quand aucune icone personnalisee n'est choisie
 
 Ce script ne teste pas le geste de drag & drop lui-meme (mecanique AppKit
 `draggingEntered`/`performDragOperation`) : ca a ete verifie manuellement avec un vrai

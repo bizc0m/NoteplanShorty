@@ -15,7 +15,7 @@ mkdir -p "$OUT"
 assert_app() {
   local note_name="$1"
   local expected_url="$2"
-  local expected_icon="${3:-applet}"
+  local expected_icon="${3:-none}"
   local app_path="$OUT/$note_name.app"
 
   test -d "$app_path"
@@ -24,12 +24,15 @@ assert_app() {
   test "$(plutil -extract CFBundleName raw "$app_path/Contents/Info.plist")" = "$note_name"
   test "$(plutil -extract CFBundleDisplayName raw "$app_path/Contents/Info.plist")" = "$note_name"
   test "$(plutil -extract NotePlanShortcutURL raw "$app_path/Contents/Info.plist")" = "$expected_url"
-  test "$(plutil -extract CFBundleIconFile raw "$app_path/Contents/Info.plist")" = "$expected_icon"
   osadecompile "$app_path/Contents/Resources/Scripts/main.scpt" | grep -F "$expected_url" >/dev/null
 
   if [ "$expected_icon" = "CustomIcon" ]; then
+    test "$(plutil -extract CFBundleIconFile raw "$app_path/Contents/Info.plist")" = "$expected_icon"
     test -f "$app_path/Contents/Resources/CustomIcon.icns"
     test "$(stat -f %z "$app_path/Contents/Resources/CustomIcon.icns")" -lt 800000
+  else
+    ! plutil -extract CFBundleIconFile raw "$app_path/Contents/Info.plist" >/dev/null 2>&1
+    test ! -f "$app_path/Contents/Resources/applet.icns"
   fi
 }
 
